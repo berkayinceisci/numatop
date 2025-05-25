@@ -76,14 +76,7 @@ pub fn draw(app: &App, frame: &mut Frame) {
         }
 
         // --- Memory Utilization Section ---
-        let memory_section_block = Block::default().title("Memory Utilization");
         let memory_area = inner_chunks[1];
-        frame.render_widget(memory_section_block.clone(), memory_area);
-
-        let gauge_area = Layout::default()
-            .margin(1)
-            .constraints([Constraint::Min(0)])
-            .split(memory_area)[0];
 
         let memory_ratio = if node_data.total_memory_mb > 0 {
             node_data.used_memory_mb as f64 / node_data.total_memory_mb as f64
@@ -91,52 +84,29 @@ pub fn draw(app: &App, frame: &mut Frame) {
             0.0
         };
         let memory_label = format!(
-            "{:.1}/{:.1} GB ({:.0}%)",
+            "{:.1}/{:.1} GiB ({:.0}%)", // Displaying as GiB from MB data
             node_data.used_memory_mb as f64 / 1024.0,
             node_data.total_memory_mb as f64 / 1024.0,
             memory_ratio * 100.0
         );
 
+        let gauge_color = if memory_ratio > 0.85 {
+            Color::Red
+        } else if memory_ratio > 0.65 {
+            Color::Yellow
+        } else {
+            Color::Green
+        };
+
         let memory_gauge = Gauge::default()
-            .block(Block::default().borders(Borders::NONE))
+            .block(Block::default().title("Memory Usage")) // No borders for gauge itself if inside main block
             .gauge_style(
-                Style::default()
-                    .fg(Color::Green)
-                    .bg(Color::Black)
-                    .add_modifier(Modifier::ITALIC),
+                Style::default().fg(gauge_color).bg(Color::Black), // Background of the unfilled part
+                                                                   // .add_modifier(Modifier::ITALIC), // Optional
             )
-            .percent((memory_ratio * 100.0) as u16)
+            .ratio(memory_ratio.min(1.0).max(0.0)) // Clamp ratio between 0 and 1
             .label(memory_label);
-        frame.render_widget(memory_gauge, gauge_area);
-        //         let memory_area = inner_chunks[1]; // Use the larger part for memory
-
-        //         let memory_ratio = if node_data.total_memory_mb > 0 {
-        //             node_data.used_memory_mb as f64 / node_data.total_memory_mb as f64
-        //         } else {
-        //             0.0
-        //         };
-        //         let memory_label = format!(
-        //             "{:.1}/{:.1} GiB ({:.0}%)", // Displaying as GiB from MB data
-        //             node_data.used_memory_mb as f64 / 1024.0,
-        //             node_data.total_memory_mb as f64 / 1024.0,
-        //             memory_ratio * 100.0
-        //         );
-
-        //         let gauge_color = if memory_ratio > 0.85 { Color::Red }
-        //                           else if memory_ratio > 0.65 { Color::Yellow }
-        //                           else { Color::Green };
-
-        //         let memory_gauge = Gauge::default()
-        //             .block(Block::default().title("Memory Usage")) // No borders for gauge itself if inside main block
-        //             .gauge_style(
-        //                 Style::default()
-        //                     .fg(gauge_color)
-        //                     .bg(Color::Black) // Background of the unfilled part
-        //                     // .add_modifier(Modifier::ITALIC), // Optional
-        //             )
-        //             .ratio(memory_ratio.min(1.0).max(0.0)) // Clamp ratio between 0 and 1
-        //             .label(memory_label);
-        //         frame.render_widget(memory_gauge, memory_area);
+        frame.render_widget(memory_gauge, memory_area);
     }
 }
 

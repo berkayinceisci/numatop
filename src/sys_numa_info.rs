@@ -66,22 +66,24 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
     let reader = io::BufReader::new(file);
     let mut mem_total_kb: Option<u64> = None;
     let mut mem_free_kb: Option<u64> = None;
-    let mut buffers_kb: Option<u64> = None;
-    let mut cached_kb: Option<u64> = None;
+    let mut mem_inactive_anon_kb: Option<u64> = None;
+    let mut mem_inactive_file_kb: Option<u64> = None;
     let mut slab_reclaimable_kb: Option<u64> = None;
 
     for line in reader.lines() {
         let line = line?;
-        let mut parts = line.split_whitespace();
-        let key = parts.next().unwrap_or("");
+        let mut parts = line.split_whitespace(); // Node 0 MemTotal: 123 kB
+        let _ = parts.next(); // "Node"
+        let _ = parts.next(); // "0"
+        let key = parts.next().unwrap_or(""); // "MemTotal:"
         let value_str = parts.next().unwrap_or("0");
         let value_kb = value_str.parse::<u64>().unwrap_or(0);
 
         match key {
             "MemTotal:" => mem_total_kb = Some(value_kb),
             "MemFree:" => mem_free_kb = Some(value_kb),
-            "Buffers:" => buffers_kb = Some(value_kb),
-            "Cached:" => cached_kb = Some(value_kb),
+            "Inactive(anon):" => mem_inactive_anon_kb = Some(value_kb),
+            "Inactive(file):" => mem_inactive_file_kb = Some(value_kb),
             "SReclaimable:" => slab_reclaimable_kb = Some(value_kb),
             _ => {}
         }
@@ -89,19 +91,22 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
 
     let total_kb = mem_total_kb.ok_or_else(|| format!("MemTotal not found in {:?}", path))?;
     let free_kb = mem_free_kb.ok_or_else(|| format!("MemFree not found in {:?}", path))?;
-    let buffers_kb = buffers_kb.unwrap_or(0);
-    let cached_kb = cached_kb.unwrap_or(0);
-    let slab_reclaimable_kb = slab_reclaimable_kb.unwrap_or(0);
+    let slab_reclaimable_kb =
+        slab_reclaimable_kb.ok_or_else(|| format!("SReclaimable not found in {:?}", path))?;
+    let inactive_anon_kb =
+        mem_inactive_anon_kb.ok_or_else(|| format!("Inactive(anon) not found in {:?}", path))?;
+    let inactive_file_kb =
+        mem_inactive_file_kb.ok_or_else(|| format!("Inactive(file) not found in {:?}", path))?;
 
-    let effective_free_kb = free_kb + buffers_kb + cached_kb + slab_reclaimable_kb;
+    let effective_free_kb = free_kb + slab_reclaimable_kb + inactive_anon_kb + inactive_file_kb;
     let used_kb = total_kb.saturating_sub(effective_free_kb);
 
     Ok((total_kb / 1024, used_kb / 1024)) // Convert KB to MB
 }
 
 // Basic parser for cpulist format like "0-3,7,10-11"
-fn parse_cpulist(cpulist_str: &str) -> HashSet<u32> {
-    let mut cpus = HashSet::new();
+fn parse_cpulist(cpulist_str: &str) -> Vec<u32> {
+    let mut cpus = Vec::new();
     for part in cpulist_str.trim().split(',') {
         if part.contains('-') {
             let range_parts: Vec<&str> = part.split('-').collect();
@@ -110,15 +115,16 @@ fn parse_cpulist(cpulist_str: &str) -> HashSet<u32> {
                     (range_parts[0].parse::<u32>(), range_parts[1].parse::<u32>())
                 {
                     for cpu_id in start..=end {
-                        cpus.insert(cpu_id);
+                        cpus.push(cpu_id);
                     }
                 }
             }
         } else {
             if let Ok(cpu_id) = part.parse::<u32>() {
-                cpus.insert(cpu_id);
+                cpus.push(cpu_id);
             }
         }
     }
+    cpus.sort();
     cpus
 }
