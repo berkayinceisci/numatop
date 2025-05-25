@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
 
-pub fn draw(app: &mut App, frame: &mut Frame) {
+pub fn draw(app: &App, frame: &mut Frame) {
     let num_nodes = app.numa_nodes.len();
     if num_nodes == 0 {
         frame.render_widget(
@@ -23,10 +23,8 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         std::iter::repeat(Constraint::Percentage(100 / num_nodes as u16))
             .take(num_nodes)
             .collect();
-    let node_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(constraints)
-        .split(frame.area());
+
+    let node_chunks = Layout::horizontal(constraints).split(frame.area());
 
     for (i, node_data) in app.numa_nodes.iter().enumerate() {
         let node_chunk = node_chunks[i];
@@ -55,7 +53,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             if !cpus.is_empty() {
                 let cpu_items: Vec<ListItem> = cpus
                     .iter()
-                    .map(|cpu| ListItem::new(format!("Core {}: {:.1}%", cpu.id, cpu.utilization)))
+                    .map(|cpu| {
+                        ListItem::new(format!("Core {}: {:.1}%", cpu.id, /*utilization*/ 50))
+                    })
                     .collect();
                 let cpu_list = List::new(cpu_items)
                     .block(Block::default().borders(Borders::NONE))
@@ -69,13 +69,8 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
                 );
             }
         } else {
-            let cxl_text = if node_data.has_cxl_expander {
-                "CPULess Node (CXL Memory Expander)"
-            } else {
-                "CPULess Node"
-            };
             frame.render_widget(
-                Paragraph::new(cxl_text).style(Style::default().fg(Color::Yellow)),
+                Paragraph::new("CPU-LESS NUMA").style(Style::default().fg(Color::Yellow)),
                 cpu_list_area,
             );
         }
@@ -113,6 +108,35 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
             .percent((memory_ratio * 100.0) as u16)
             .label(memory_label);
         frame.render_widget(memory_gauge, gauge_area);
+        //         let memory_area = inner_chunks[1]; // Use the larger part for memory
+
+        //         let memory_ratio = if node_data.total_memory_mb > 0 {
+        //             node_data.used_memory_mb as f64 / node_data.total_memory_mb as f64
+        //         } else {
+        //             0.0
+        //         };
+        //         let memory_label = format!(
+        //             "{:.1}/{:.1} GiB ({:.0}%)", // Displaying as GiB from MB data
+        //             node_data.used_memory_mb as f64 / 1024.0,
+        //             node_data.total_memory_mb as f64 / 1024.0,
+        //             memory_ratio * 100.0
+        //         );
+
+        //         let gauge_color = if memory_ratio > 0.85 { Color::Red }
+        //                           else if memory_ratio > 0.65 { Color::Yellow }
+        //                           else { Color::Green };
+
+        //         let memory_gauge = Gauge::default()
+        //             .block(Block::default().title("Memory Usage")) // No borders for gauge itself if inside main block
+        //             .gauge_style(
+        //                 Style::default()
+        //                     .fg(gauge_color)
+        //                     .bg(Color::Black) // Background of the unfilled part
+        //                     // .add_modifier(Modifier::ITALIC), // Optional
+        //             )
+        //             .ratio(memory_ratio.min(1.0).max(0.0)) // Clamp ratio between 0 and 1
+        //             .label(memory_label);
+        //         frame.render_widget(memory_gauge, memory_area);
     }
 }
 

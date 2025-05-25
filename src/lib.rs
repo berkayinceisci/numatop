@@ -1,6 +1,9 @@
 pub mod app;
 use app::App;
-pub mod ui;
+
+mod numa_node;
+mod sys_numa_info;
+mod ui;
 
 use std::{
     io,
@@ -43,7 +46,5 @@ pub fn run_app(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> 
         handle_events(app, last_tick)?;
         app.update();
         last_tick = Instant::now();
-        // if last_tick.elapsed() >= TICK_RATE {
-        // }
     }
 }
