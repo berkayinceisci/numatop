@@ -1,6 +1,5 @@
 use crate::numa_node::{CpuCore, NumaNode};
 use std::{
-    collections::HashSet,
     error::Error,
     fs,
     io::{self, BufRead},
@@ -38,7 +37,10 @@ pub fn get_numa_node_data() -> Result<Vec<NumaNode>, Box<dyn Error>> {
                                     node_cpus = Some(
                                         core_ids
                                             .into_iter()
-                                            .map(|core_id| CpuCore { id: core_id })
+                                            .map(|core_id| CpuCore {
+                                                id: core_id,
+                                                ..Default::default()
+                                            })
                                             .collect(),
                                     );
                                 }
@@ -127,4 +129,10 @@ fn parse_cpulist(cpulist_str: &str) -> Vec<u32> {
     }
     cpus.sort();
     cpus
+}
+
+pub fn get_all_present_cpu_indices() -> Result<Vec<u32>, Box<dyn Error>> {
+    let cpulist_str = fs::read_to_string("/sys/devices/system/cpu/present")?;
+    let cpu_indices = parse_cpulist(&cpulist_str);
+    Ok(cpu_indices)
 }

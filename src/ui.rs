@@ -3,7 +3,8 @@ use crate::app::App;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
 };
 
@@ -19,6 +20,7 @@ pub fn draw(app: &App, frame: &mut Frame) {
     }
 
     // Create a layout with one column per NUMA node
+    // TODO: add layouts.toml file under config/ to allow configuration of runtime layouts
     let constraints: Vec<Constraint> =
         std::iter::repeat(Constraint::Percentage(100 / num_nodes as u16))
             .take(num_nodes)
@@ -51,16 +53,61 @@ pub fn draw(app: &App, frame: &mut Frame) {
 
         if let Some(cpus) = &node_data.cpus {
             if !cpus.is_empty() {
-                let cpu_items: Vec<ListItem> = cpus
-                    .iter()
-                    .map(|cpu| {
-                        ListItem::new(format!("Core {}: {:.1}%", cpu.id, /*utilization*/ 50))
-                    })
-                    .collect();
-                let cpu_list = List::new(cpu_items)
-                    .block(Block::default().borders(Borders::NONE))
-                    .style(Style::default().fg(Color::White));
-                frame.render_widget(cpu_list, cpu_list_area);
+                // Determine number of columns based on CPU count
+                let num_cpus = cpus.len();
+                let num_columns = if num_cpus <= 24 {
+                    1
+                } else if num_cpus <= 48 {
+                    2
+                } else if num_cpus <= 72 {
+                    3
+                } else {
+                    4
+                };
+
+                let column_constraints: Vec<Constraint> =
+                    vec![Constraint::Percentage(100 / num_columns as u16); num_columns];
+                let column_chunks = Layout::horizontal(column_constraints).split(cpu_list_area);
+                let items_per_column = (num_cpus as f64 / num_columns as f64).ceil() as usize;
+
+                for col in 0..num_columns {
+                    let start_idx = col * items_per_column;
+                    let end_idx = (start_idx + items_per_column).min(num_cpus);
+
+                    if start_idx >= num_cpus {
+                        break;
+                    }
+                    let column_cpu_items: Vec<ListItem> = cpus[start_idx..end_idx]
+                        .iter()
+                        .map(|cpu| {
+                            let util_color = if cpu.utilization > 85.0 {
+                                Color::Red
+                            } else if cpu.utilization > 65.0 {
+                                Color::Yellow
+                            } else if cpu.utilization > 30.0 {
+                                Color::Green
+                            } else {
+                                Color::Blue
+                            };
+
+                            let line = Line::from(vec![
+                                Span::raw(format!("Core {}: ", cpu.id)),
+                                Span::styled(
+                                    format!("{:.1}%", cpu.utilization),
+                                    Style::default().fg(util_color),
+                                ),
+                            ]);
+
+                            ListItem::new(line)
+                        })
+                        .collect();
+
+                    let cpu_list = List::new(column_cpu_items)
+                        .block(Block::default().borders(Borders::NONE))
+                        .style(Style::default().fg(Color::White));
+
+                    frame.render_widget(cpu_list, column_chunks[col]);
+                }
             } else {
                 frame.render_widget(
                     Paragraph::new("No CPUs on this node.")

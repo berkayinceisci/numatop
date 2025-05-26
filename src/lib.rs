@@ -2,6 +2,7 @@ pub mod app;
 use app::App;
 
 mod numa_node;
+mod proc_cpu_info;
 mod sys_numa_info;
 mod ui;
 
@@ -43,8 +44,12 @@ pub fn run_app(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> 
 
     loop {
         terminal.draw(|frame| draw(app, frame))?;
+
+        if last_tick.elapsed() >= TICK_RATE {
+            app.update();
+            last_tick = Instant::now();
+        }
+
         handle_events(app, last_tick)?;
-        app.update();
-        last_tick = Instant::now();
     }
 }
