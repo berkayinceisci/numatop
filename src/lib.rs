@@ -40,16 +40,11 @@ fn handle_events(app: &mut App, last_tick: Instant) -> io::Result<()> {
 
 pub fn run_app(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     let mut last_tick = Instant::now();
-    app.update();
 
     loop {
+        app.update();
         terminal.draw(|frame| draw(app, frame))?;
-
-        if last_tick.elapsed() >= TICK_RATE {
-            app.update();
-            last_tick = Instant::now();
-        }
-
         handle_events(app, last_tick)?;
+        last_tick = Instant::now();
     }
 }
