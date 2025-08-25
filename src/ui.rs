@@ -5,10 +5,13 @@ use ratatui::{
     layout::{Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph},
 };
 
-pub fn draw(app: &App, frame: &mut Frame) {
+pub fn draw(app: &mut App, frame: &mut Frame) {
+    // Clear CPU core areas at the start of each draw
+    app.clear_cpu_core_areas();
+
     let num_nodes = app.numa_nodes.len();
     if num_nodes == 0 {
         frame.render_widget(
@@ -27,6 +30,9 @@ pub fn draw(app: &App, frame: &mut Frame) {
             .collect();
 
     let node_chunks = Layout::horizontal(constraints).split(frame.area());
+
+    // Collect all CPU core areas before adding them to app
+    let mut all_cpu_core_areas = Vec::new();
 
     for (i, node_data) in app.numa_nodes.iter().enumerate() {
         let node_chunk = node_chunks[i];
@@ -70,6 +76,9 @@ pub fn draw(app: &App, frame: &mut Frame) {
                 let column_chunks = Layout::horizontal(column_constraints).split(cpu_list_area);
                 let items_per_column = (num_cpus as f64 / num_columns as f64).ceil() as usize;
 
+                // Collect CPU core areas first
+                let mut node_cpu_core_areas = Vec::new();
+
                 for col in 0..num_columns {
                     let start_idx = col * items_per_column;
                     let end_idx = (start_idx + items_per_column).min(num_cpus);
@@ -79,7 +88,8 @@ pub fn draw(app: &App, frame: &mut Frame) {
                     }
                     let column_cpu_items: Vec<ListItem> = cpus[start_idx..end_idx]
                         .iter()
-                        .map(|cpu| {
+                        .enumerate()
+                        .map(|(item_idx, cpu)| {
                             let util_color = if cpu.utilization > 85.0 {
                                 Color::Red
                             } else if cpu.utilization > 65.0 {
@@ -89,6 +99,19 @@ pub fn draw(app: &App, frame: &mut Frame) {
                             } else {
                                 Color::Blue
                             };
+
+                            // Calculate the area for this CPU core item
+                            let column_area = column_chunks[col];
+                            let item_height = 1; // Each ListItem takes 1 row
+                            let item_area = Rect {
+                                x: column_area.x,
+                                y: column_area.y + item_idx as u16,
+                                width: column_area.width,
+                                height: item_height,
+                            };
+
+                            // Store CPU core area for later registration
+                            node_cpu_core_areas.push((cpu.id, item_area));
 
                             let line = Line::from(vec![
                                 Span::raw(format!("Core {}: ", cpu.id)),
@@ -108,6 +131,9 @@ pub fn draw(app: &App, frame: &mut Frame) {
 
                     frame.render_widget(cpu_list, column_chunks[col]);
                 }
+
+                // Add CPU core areas to the global collection
+                all_cpu_core_areas.extend(node_cpu_core_areas);
             } else {
                 frame.render_widget(
                     Paragraph::new("No CPUs on this node.")
@@ -154,6 +180,73 @@ pub fn draw(app: &App, frame: &mut Frame) {
             .ratio(memory_ratio.min(1.0).max(0.0)) // Clamp ratio between 0 and 1
             .label(memory_label);
         frame.render_widget(memory_gauge, memory_area);
+    }
+
+    // Register all CPU core areas after the loop completes
+    for (cpu_id, area) in all_cpu_core_areas {
+        app.add_cpu_core_area(cpu_id, area);
+    }
+
+    // Render popup if it should be shown
+    if app.popup_state.show {
+        render_process_popup(frame, app);
+    }
+}
+
+fn render_process_popup(frame: &mut Frame, app: &App) {
+    // Create popup area (60% width, 70% height)
+    let popup_area = popup_area(frame.area(), 60, 70);
+
+    // Clear the area
+    frame.render_widget(Clear, popup_area);
+
+    // Create the popup block
+    let popup_block = Block::default()
+        .title(format!(
+            "Processes on CPU Core {} (Press ESC to close)",
+            app.popup_state.cpu_core_id
+        ))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black).fg(Color::White));
+
+    frame.render_widget(popup_block, popup_area);
+
+    // Create inner area for the process list
+    let inner_area = Layout::default()
+        .margin(1)
+        .constraints([Constraint::Min(0)])
+        .split(popup_area)[0];
+
+    if app.popup_state.processes.is_empty() {
+        // Show message when no processes are found
+        let no_processes_msg = Paragraph::new("No processes found with affinity to this CPU core")
+            .style(Style::default().fg(Color::Yellow))
+            .block(Block::default().borders(Borders::NONE));
+        frame.render_widget(no_processes_msg, inner_area);
+    } else {
+        // Create process list items
+        let process_items: Vec<ListItem> = app
+            .popup_state
+            .processes
+            .iter()
+            .map(|process| {
+                let line = Line::from(vec![
+                    Span::raw(format!("PID {}: ", process.pid)),
+                    Span::styled(
+                        format!("{}", process.name),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]);
+
+                ListItem::new(line)
+            })
+            .collect();
+
+        let process_list = List::new(process_items)
+            .block(Block::default().borders(Borders::NONE))
+            .style(Style::default().fg(Color::White));
+
+        frame.render_widget(process_list, inner_area);
     }
 }
 

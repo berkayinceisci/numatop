@@ -1,11 +1,34 @@
-use crate::numa_node::{CpuCore, NumaNode, RawCpuTimes};
+use crate::numa_node::{NumaNode, RawCpuTimes};
 use crate::proc_cpu_info::parse_proc_stat_for_cores;
+use crate::proc_info::get_processes_with_cpu_affinity;
 use crate::sys_numa_info::{get_all_present_cpu_indices, get_numa_node_data};
+use ratatui::layout::Rect;
 use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+}
+
+#[derive(Debug)]
+pub struct PopupState {
+    pub show: bool,
+    pub cpu_core_id: u32,
+    pub processes: Vec<ProcessInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CpuCoreArea {
+    pub cpu_id: u32,
+    pub area: Rect,
+}
 
 pub struct App {
     pub numa_nodes: Vec<NumaNode>,
     pub prev_cpu_times: HashMap<u32, RawCpuTimes>,
+    pub popup_state: PopupState,
+    pub cpu_core_areas: Vec<CpuCoreArea>,
 }
 
 impl App {
@@ -13,6 +36,12 @@ impl App {
         App {
             numa_nodes: vec![],
             prev_cpu_times: HashMap::new(),
+            popup_state: PopupState {
+                show: false,
+                cpu_core_id: 0,
+                processes: Vec::new(),
+            },
+            cpu_core_areas: Vec::new(),
         }
     }
 
@@ -56,5 +85,49 @@ impl App {
                 }
             }
         }
+    }
+
+    pub fn show_cpu_popup(&mut self, cpu_core_id: u32) {
+        self.popup_state.show = true;
+        self.popup_state.cpu_core_id = cpu_core_id;
+
+        // Fetch processes with affinity to this CPU core
+        match get_processes_with_cpu_affinity(cpu_core_id) {
+            Ok(processes) => {
+                self.popup_state.processes = processes;
+            }
+            Err(e) => {
+                eprintln!("Error fetching processes for CPU {}: {}", cpu_core_id, e);
+                self.popup_state.processes.clear();
+            }
+        }
+    }
+
+    pub fn hide_popup(&mut self) {
+        self.popup_state.show = false;
+        self.popup_state.processes.clear();
+    }
+
+    pub fn handle_mouse_click(&mut self, x: u16, y: u16) {
+        // Check if the click falls within any CPU core area
+        for core_area in &self.cpu_core_areas {
+            if x >= core_area.area.x
+                && x < core_area.area.x + core_area.area.width
+                && y >= core_area.area.y
+                && y < core_area.area.y + core_area.area.height
+            {
+                // Found a matching CPU core, show popup
+                self.show_cpu_popup(core_area.cpu_id);
+                return;
+            }
+        }
+    }
+
+    pub fn clear_cpu_core_areas(&mut self) {
+        self.cpu_core_areas.clear();
+    }
+
+    pub fn add_cpu_core_area(&mut self, cpu_id: u32, area: Rect) {
+        self.cpu_core_areas.push(CpuCoreArea { cpu_id, area });
     }
 }
