@@ -1,5 +1,6 @@
 pub mod app;
 use app::App;
+use cli_log::*;
 
 mod numa_node;
 mod proc_cpu_info;
@@ -32,12 +33,14 @@ fn handle_events(app: &mut App, last_tick: Instant) -> io::Result<()> {
         match event::read()? {
             Event::Key(key) => {
                 if key.code == KeyCode::Char('q') {
+                    debug!("q pressed");
                     todo!("exit");
                 } else if key.code == KeyCode::Esc {
                     app.hide_popup();
                 }
             }
             Event::Mouse(mouse) => {
+                debug!("mouse click: {:?}", mouse);
                 if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
                     // Store mouse click coordinates for UI processing
                     app.handle_mouse_click(mouse.column, mouse.row);
