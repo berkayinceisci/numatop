@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::io::BufRead;
+use std::io::{BufRead, ErrorKind};
 use std::{fs, io};
 
 #[derive(Debug, Clone, Default)]
@@ -86,7 +86,36 @@ fn get_process_info(pid: u32) -> io::Result<ProcessInfo> {
     Ok(ProcessInfo { pid, name })
 }
 
-pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<ProcessInfo>> {
+fn get_current_cpu_core(pid: u32) -> io::Result<u32> {
+    // Construct the path to the process's stat file
+    let stat_path = format!("/proc/{}/stat", pid);
+
+    // Read the content of the stat file
+    let stat_content = fs::read_to_string(&stat_path)?;
+
+    // Split the content by spaces to get individual fields
+    let fields: Vec<&str> = stat_content.split_whitespace().collect();
+
+    // The 39th field (index 38) contains the current CPU core ID
+    if let Some(cpu_field) = fields.get(38) {
+        // Try to parse the field into a u32
+        match cpu_field.parse::<u32>() {
+            Ok(cpu_core) => Ok(cpu_core),
+            Err(_) => Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "Failed to parse CPU core ID",
+            )),
+        }
+    } else {
+        // If the 39th field doesn't exist, return an error
+        Err(io::Error::new(
+            ErrorKind::NotFound,
+            "Could not find CPU core ID in /proc/PID/stat",
+        ))
+    }
+}
+
+pub fn get_processes_currently_on_core(cpu_core_id: u32) -> io::Result<Vec<ProcessInfo>> {
     let mut processes = Vec::new();
 
     // Read /proc directory to get all process directories
@@ -99,9 +128,10 @@ pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<Proce
         // Check if directory name is a PID (numeric)
         if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
             if let Ok(pid) = dir_name.parse::<u32>() {
-                // Check if process has affinity to this CPU core
-                if let Ok(has_affinity) = check_cpu_affinity(pid, cpu_core_id) {
-                    if has_affinity {
+                // Check if the process is currently running on the specified CPU core
+                if let Ok(current_cpu) = get_current_cpu_core(pid) {
+                    if current_cpu == cpu_core_id {
+                        // If it is, get the process info and add it to the list
                         if let Ok(process_info) = get_process_info(pid) {
                             processes.push(process_info);
                         }
@@ -114,53 +144,4 @@ pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<Proce
     processes.sort_by(|a, b| b.pid.cmp(&a.pid));
 
     Ok(processes)
-}
-
-fn check_cpu_affinity(pid: u32, cpu_core_id: u32) -> io::Result<bool> {
-    // Read CPU affinity from /proc/PID/status
-    let status_path = format!("/proc/{}/status", pid);
-    let status_content = fs::read_to_string(&status_path)?;
-
-    // Look for the "Cpus_allowed_list" line
-    for line in status_content.lines() {
-        if line.starts_with("Cpus_allowed_list:") {
-            let allowed_cpus = line.split(':').nth(1).unwrap_or("").trim();
-
-            // Parse CPU list (can be ranges like "0-3,8-11" or individual "0,1,2")
-            return Ok(parse_cpu_list(allowed_cpus, cpu_core_id));
-        }
-    }
-
-    // If we can't find affinity info, assume it can run on this CPU
-    Ok(true)
-}
-
-fn parse_cpu_list(cpu_list: &str, target_cpu: u32) -> bool {
-    for part in cpu_list.split(',') {
-        let part = part.trim();
-
-        if part.contains('-') {
-            // Handle ranges like "0-3"
-            let range_parts: Vec<&str> = part.split('-').collect();
-            if range_parts.len() == 2 {
-                if let (Ok(start), Ok(end)) = (
-                    range_parts[0].trim().parse::<u32>(),
-                    range_parts[1].trim().parse::<u32>(),
-                ) {
-                    if target_cpu >= start && target_cpu <= end {
-                        return true;
-                    }
-                }
-            }
-        } else {
-            // Handle individual CPU numbers
-            if let Ok(cpu) = part.parse::<u32>() {
-                if cpu == target_cpu {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
 }

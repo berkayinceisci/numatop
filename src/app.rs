@@ -1,9 +1,8 @@
 use crate::numa_node::NumaNode;
 use crate::proc_info::{
-    ProcessInfo, RawCpuTimes, get_processes_with_cpu_affinity, parse_proc_stat_for_cores,
+    ProcessInfo, RawCpuTimes, get_processes_currently_on_core, parse_proc_stat_for_cores,
 };
 use crate::sys_numa_info::{get_all_present_cpu_indices, get_numa_node_data};
-use cli_log::*;
 use ratatui::layout::Rect;
 use std::collections::HashMap;
 
@@ -88,7 +87,7 @@ impl App {
         self.popup_state.cpu_core_id = cpu_core_id;
 
         // Fetch processes with affinity to this CPU core
-        match get_processes_with_cpu_affinity(cpu_core_id) {
+        match get_processes_currently_on_core(cpu_core_id) {
             Ok(processes) => {
                 self.popup_state.processes = processes;
             }
