@@ -86,7 +86,6 @@ fn get_process_info(pid: u32) -> io::Result<ProcessInfo> {
     Ok(ProcessInfo { pid, name })
 }
 
-/// Get processes that have affinity set to a specific CPU core
 pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<ProcessInfo>> {
     let mut processes = Vec::new();
 
@@ -112,8 +111,7 @@ pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<Proce
         }
     }
 
-    // Limit to top 15 processes
-    processes.truncate(15);
+    processes.sort_by(|a, b| b.pid.cmp(&a.pid));
 
     Ok(processes)
 }
