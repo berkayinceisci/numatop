@@ -3,7 +3,6 @@ use app::App;
 use cli_log::*;
 
 mod numa_node;
-mod proc_cpu_info;
 mod proc_info;
 mod sys_numa_info;
 mod ui;
@@ -40,7 +39,6 @@ fn handle_events(app: &mut App, last_tick: Instant) -> io::Result<()> {
                 }
             }
             Event::Mouse(mouse) => {
-                debug!("mouse click: {:?}", mouse);
                 if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
                     // Store mouse click coordinates for UI processing
                     app.handle_mouse_click(mouse.column, mouse.row);

@@ -1,16 +1,11 @@
-use crate::numa_node::{NumaNode, RawCpuTimes};
-use crate::proc_cpu_info::parse_proc_stat_for_cores;
-use crate::proc_info::get_processes_with_cpu_affinity;
+use crate::numa_node::NumaNode;
+use crate::proc_info::{
+    ProcessInfo, RawCpuTimes, get_processes_with_cpu_affinity, parse_proc_stat_for_cores,
+};
 use crate::sys_numa_info::{get_all_present_cpu_indices, get_numa_node_data};
 use cli_log::*;
 use ratatui::layout::Rect;
 use std::collections::HashMap;
-
-#[derive(Debug, Clone)]
-pub struct ProcessInfo {
-    pub pid: u32,
-    pub name: String,
-}
 
 #[derive(Debug)]
 pub struct PopupState {
@@ -110,7 +105,6 @@ impl App {
     }
 
     pub fn handle_mouse_click(&mut self, x: u16, y: u16) {
-        debug!("Mouse click happened: {}, {}", x, y);
         // Check if the click falls within any CPU core area
         for core_area in &self.cpu_core_areas {
             if x >= core_area.area.x

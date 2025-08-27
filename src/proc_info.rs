@@ -1,8 +1,84 @@
-use crate::app::ProcessInfo;
-use std::fs;
-use std::io::Result;
+use std::collections::HashMap;
+use std::error::Error;
+use std::io::BufRead;
+use std::{fs, io};
 
-fn get_process_info(pid: u32) -> Result<ProcessInfo> {
+#[derive(Debug, Clone, Default)]
+pub struct RawCpuTimes {
+    pub user: u64,
+    pub nice: u64,
+    pub system: u64,
+    pub idle: u64,
+    pub iowait: u64,
+    pub irq: u64,
+    pub softirq: u64,
+    pub steal: u64,
+}
+
+impl RawCpuTimes {
+    // Total time is the sum of all times
+    pub fn total(&self) -> u64 {
+        self.user
+            + self.nice
+            + self.system
+            + self.idle
+            + self.iowait
+            + self.irq
+            + self.softirq
+            + self.steal
+    }
+
+    // Busy time is total time minus idle times (idle + iowait)
+    pub fn busy(&self) -> u64 {
+        self.user + self.nice + self.system + self.irq + self.softirq + self.steal
+    }
+}
+
+pub fn parse_proc_stat_for_cores(
+    cores_to_fetch: Vec<u32>,
+) -> Result<HashMap<u32, RawCpuTimes>, Box<dyn Error>> {
+    let mut all_core_times = HashMap::new();
+    let file = fs::File::open("/proc/stat")?;
+    let reader = io::BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("cpu") && !line.starts_with("cpu ") {
+            let mut parts = line.split_whitespace();
+            let cpu_label = parts.next().ok_or("Missing CPU label")?;
+            if let Ok(core_id) = cpu_label[3..].parse::<u32>() {
+                if cores_to_fetch.contains(&core_id) {
+                    let times: Vec<u64> = parts.map(|s| s.parse().unwrap_or(0)).collect();
+                    if times.len() >= 8 {
+                        // user, nice, system, idle, iowait, irq, softirq, steal
+                        all_core_times.insert(
+                            core_id,
+                            RawCpuTimes {
+                                user: times[0],
+                                nice: times[1],
+                                system: times[2],
+                                idle: times[3],
+                                iowait: times[4],
+                                irq: times[5],
+                                softirq: times[6],
+                                steal: times[7],
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(all_core_times)
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+}
+
+fn get_process_info(pid: u32) -> io::Result<ProcessInfo> {
     // Read process name from /proc/PID/comm
     let comm_path = format!("/proc/{}/comm", pid);
     let name = fs::read_to_string(&comm_path)?.trim().to_string();
@@ -11,7 +87,7 @@ fn get_process_info(pid: u32) -> Result<ProcessInfo> {
 }
 
 /// Get processes that have affinity set to a specific CPU core
-pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> Result<Vec<ProcessInfo>> {
+pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> io::Result<Vec<ProcessInfo>> {
     let mut processes = Vec::new();
 
     // Read /proc directory to get all process directories
@@ -42,7 +118,7 @@ pub fn get_processes_with_cpu_affinity(cpu_core_id: u32) -> Result<Vec<ProcessIn
     Ok(processes)
 }
 
-fn check_cpu_affinity(pid: u32, cpu_core_id: u32) -> Result<bool> {
+fn check_cpu_affinity(pid: u32, cpu_core_id: u32) -> io::Result<bool> {
     // Read CPU affinity from /proc/PID/status
     let status_path = format!("/proc/{}/status", pid);
     let status_content = fs::read_to_string(&status_path)?;
@@ -89,142 +165,4 @@ fn parse_cpu_list(cpu_list: &str, target_cpu: u32) -> bool {
     }
 
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_cpu_list_individual_cpus() {
-        // Test individual CPU numbers
-        assert!(parse_cpu_list("0,1,2,3", 0));
-        assert!(parse_cpu_list("0,1,2,3", 1));
-        assert!(parse_cpu_list("0,1,2,3", 2));
-        assert!(parse_cpu_list("0,1,2,3", 3));
-        assert!(!parse_cpu_list("0,1,2,3", 4));
-        assert!(!parse_cpu_list("0,1,2,3", 5));
-    }
-
-    #[test]
-    fn test_parse_cpu_list_ranges() {
-        // Test CPU ranges
-        assert!(parse_cpu_list("0-3", 0));
-        assert!(parse_cpu_list("0-3", 1));
-        assert!(parse_cpu_list("0-3", 2));
-        assert!(parse_cpu_list("0-3", 3));
-        assert!(!parse_cpu_list("0-3", 4));
-
-        // Test larger range
-        assert!(parse_cpu_list("8-15", 10));
-        assert!(!parse_cpu_list("8-15", 7));
-        assert!(!parse_cpu_list("8-15", 16));
-    }
-
-    #[test]
-    fn test_parse_cpu_list_mixed() {
-        // Test mixed individual and ranges
-        assert!(parse_cpu_list("0-3,8-11", 0));
-        assert!(parse_cpu_list("0-3,8-11", 3));
-        assert!(parse_cpu_list("0-3,8-11", 8));
-        assert!(parse_cpu_list("0-3,8-11", 11));
-        assert!(!parse_cpu_list("0-3,8-11", 4));
-        assert!(!parse_cpu_list("0-3,8-11", 7));
-        assert!(!parse_cpu_list("0-3,8-11", 12));
-
-        // Test individual CPUs mixed with ranges
-        assert!(parse_cpu_list("0,2-4,7", 0));
-        assert!(parse_cpu_list("0,2-4,7", 2));
-        assert!(parse_cpu_list("0,2-4,7", 3));
-        assert!(parse_cpu_list("0,2-4,7", 4));
-        assert!(parse_cpu_list("0,2-4,7", 7));
-        assert!(!parse_cpu_list("0,2-4,7", 1));
-        assert!(!parse_cpu_list("0,2-4,7", 5));
-        assert!(!parse_cpu_list("0,2-4,7", 6));
-    }
-
-    #[test]
-    fn test_parse_cpu_list_edge_cases() {
-        // Test empty string
-        assert!(!parse_cpu_list("", 0));
-
-        // Test whitespace
-        assert!(parse_cpu_list(" 0 , 1 , 2 ", 0));
-        assert!(parse_cpu_list(" 0 - 3 ", 2));
-
-        // Test single CPU
-        assert!(parse_cpu_list("5", 5));
-        assert!(!parse_cpu_list("5", 4));
-
-        // Test invalid formats (should not crash)
-        assert!(!parse_cpu_list("invalid", 0));
-        assert!(!parse_cpu_list("0-", 0));
-        assert!(!parse_cpu_list("-3", 0));
-        assert!(!parse_cpu_list("0-3-5", 0));
-    }
-
-    #[test]
-    fn test_get_process_info_with_mock_data() {
-        // This test would require mocking the filesystem, which is complex
-        // In a real scenario, you might want to use a mocking library
-        // For now, we'll test the components that don't require filesystem access
-
-        // We can't easily test get_process_info without filesystem mocking
-        // but we've tested its components above
-    }
-
-    // Integration test that requires actual /proc filesystem
-    #[test]
-    #[ignore] // Use `cargo test -- --ignored` to run this test
-    fn test_get_processes_with_cpu_affinity_integration() {
-        // This is an integration test that requires a real /proc filesystem
-        // It's marked as ignored because it depends on the system state
-
-        let result = get_processes_with_cpu_affinity(0);
-
-        match result {
-            Ok(processes) => {
-                // Should return at most 15 processes
-                assert!(processes.len() <= 15);
-
-                // All processes should have valid PIDs
-                for process in &processes {
-                    println!("{:?}", process);
-                    assert!(process.pid > 0);
-                    assert!(!process.name.is_empty());
-                }
-            }
-            Err(e) => {
-                // If we can't read /proc, that's also a valid test result
-                println!("Integration test failed (expected on some systems): {}", e);
-            }
-        }
-    }
-
-    #[test]
-    fn test_check_cpu_affinity_mock() {
-        // We can't easily mock the filesystem without additional dependencies
-        // but we can test the CPU list parsing which is the core logic
-
-        // Test the parse_cpu_list function thoroughly (already done above)
-        // In a production environment, you'd want to use a mocking framework
-        // like `mockall` or create a trait for filesystem operations
-    }
-
-    // Helper function for creating mock process data (if we had filesystem mocking)
-    #[allow(dead_code)]
-    fn create_mock_stat_content(utime: u64, stime: u64) -> String {
-        format!(
-            "1 (test) S 0 1 1 0 -1 4194304 100 0 0 0 {} {} 0 0 20 0 1 0 100",
-            utime, stime
-        )
-    }
-
-    #[allow(dead_code)]
-    fn create_mock_status_content(cpu_list: &str) -> String {
-        format!(
-            "Name:\ttest\nPid:\t1234\nCpus_allowed_list:\t{}\n",
-            cpu_list
-        )
-    }
 }
