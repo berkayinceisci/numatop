@@ -72,14 +72,14 @@ pub fn parse_proc_stat_for_cores(
     Ok(all_core_times)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
 }
 
 fn get_process_info(pid: u32) -> io::Result<ProcessInfo> {
-    // Read process name from /proc/PID/comm
+    // Read thread/process name from /proc/PID/comm
     let comm_path = format!("/proc/{}/comm", pid);
     let name = fs::read_to_string(&comm_path)?.trim().to_string();
 
@@ -87,7 +87,7 @@ fn get_process_info(pid: u32) -> io::Result<ProcessInfo> {
 }
 
 fn get_current_cpu_core(pid: u32) -> io::Result<u32> {
-    // Construct the path to the process's stat file
+    // Construct the path to the thread's stat file
     let stat_path = format!("/proc/{}/stat", pid);
 
     // Read the content of the stat file
@@ -128,12 +128,25 @@ pub fn get_processes_currently_on_core(cpu_core_id: u32) -> io::Result<Vec<Proce
         // Check if directory name is a PID (numeric)
         if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
             if let Ok(pid) = dir_name.parse::<u32>() {
-                // Check if the process is currently running on the specified CPU core
-                if let Ok(current_cpu) = get_current_cpu_core(pid) {
-                    if current_cpu == cpu_core_id {
-                        // If it is, get the process info and add it to the list
-                        if let Ok(process_info) = get_process_info(pid) {
-                            processes.push(process_info);
+                // For each process, iterate through its threads in /proc/PID/task/
+                let task_path = format!("/proc/{}/task", pid);
+
+                if let Ok(task_entries) = fs::read_dir(task_path) {
+                    for task_entry in task_entries.filter_map(Result::ok) {
+                        // The directory name for each task is its Thread ID (TID)
+                        if let Some(tid_str) = task_entry.file_name().to_str() {
+                            if let Ok(tid) = tid_str.parse::<u32>() {
+                                // Check if this specific thread is on the target core
+                                if let Ok(current_cpu) = get_current_cpu_core(tid) {
+                                    if current_cpu == cpu_core_id {
+                                        // Get the thread's info and add it to our list.
+                                        // The 'pid' field in ProcessInfo will hold the TID.
+                                        if let Ok(process_info) = get_process_info(tid) {
+                                            processes.push(process_info);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -141,7 +154,11 @@ pub fn get_processes_currently_on_core(cpu_core_id: u32) -> io::Result<Vec<Proce
         }
     }
 
+    // Sort by TID in reverse order
     processes.sort_by(|a, b| b.pid.cmp(&a.pid));
+
+    // Remove any potential duplicates
+    processes.dedup();
 
     Ok(processes)
 }
