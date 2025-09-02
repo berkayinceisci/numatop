@@ -17,7 +17,7 @@ use ratatui::{
     crossterm::event::{self, Event, KeyCode, MouseButton, MouseEventKind},
 };
 
-const TICK_RATE: Duration = Duration::from_millis(1000); // Refresh every 1 second
+const TICK_RATE: Duration = Duration::from_millis(500); // Refresh every 0.5 second
 
 fn draw(app: &mut App, frame: &mut Frame) {
     ui::draw(app, frame);
@@ -53,16 +53,21 @@ fn handle_events(app: &mut App, last_tick: Instant) -> io::Result<()> {
 
 pub fn run_app(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> {
     let mut last_tick = Instant::now();
+    app.update();
 
     loop {
         if app.should_exit {
             break;
         }
 
-        app.update();
+        // Only update CPU data when enough time has elapsed
+        if last_tick.elapsed() >= TICK_RATE {
+            app.update();
+            last_tick = Instant::now();
+        }
+
         terminal.draw(|frame| draw(app, frame))?;
         handle_events(app, last_tick)?;
-        last_tick = Instant::now();
     }
 
     Ok(())
