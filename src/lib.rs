@@ -33,7 +33,7 @@ fn handle_events(app: &mut App, last_tick: Instant) -> io::Result<()> {
             Event::Key(key) => {
                 if key.code == KeyCode::Char('q') {
                     debug!("q pressed");
-                    todo!("exit");
+                    app.exit();
                 } else if key.code == KeyCode::Esc {
                     app.hide_popup();
                 }
@@ -55,9 +55,15 @@ pub fn run_app(terminal: &mut DefaultTerminal, app: &mut App) -> io::Result<()> 
     let mut last_tick = Instant::now();
 
     loop {
+        if app.should_exit {
+            break;
+        }
+
         app.update();
         terminal.draw(|frame| draw(app, frame))?;
         handle_events(app, last_tick)?;
         last_tick = Instant::now();
     }
+
+    Ok(())
 }

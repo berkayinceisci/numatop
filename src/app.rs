@@ -24,6 +24,7 @@ pub struct App {
     pub prev_cpu_times: HashMap<u32, RawCpuTimes>,
     pub popup_state: PopupState,
     pub cpu_core_areas: Vec<CpuCoreArea>,
+    pub should_exit: bool,
 }
 
 impl App {
@@ -37,6 +38,7 @@ impl App {
                 processes: Vec::new(),
             },
             cpu_core_areas: Vec::new(),
+            should_exit: false,
         }
     }
 
@@ -124,5 +126,9 @@ impl App {
 
     pub fn add_cpu_core_area(&mut self, cpu_id: u32, area: Rect) {
         self.cpu_core_areas.push(CpuCoreArea { cpu_id, area });
+    }
+
+    pub fn exit(&mut self) {
+        self.should_exit = true;
     }
 }
