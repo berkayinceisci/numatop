@@ -68,9 +68,7 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
     let reader = io::BufReader::new(file);
     let mut mem_total_kb: Option<u64> = None;
     let mut mem_free_kb: Option<u64> = None;
-    let mut mem_inactive_anon_kb: Option<u64> = None;
-    let mut mem_inactive_file_kb: Option<u64> = None;
-    let mut slab_reclaimable_kb: Option<u64> = None;
+    let mut mem_used_kb: Option<u64> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -84,24 +82,14 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
         match key {
             "MemTotal:" => mem_total_kb = Some(value_kb),
             "MemFree:" => mem_free_kb = Some(value_kb),
-            "Inactive(anon):" => mem_inactive_anon_kb = Some(value_kb),
-            "Inactive(file):" => mem_inactive_file_kb = Some(value_kb),
-            "SReclaimable:" => slab_reclaimable_kb = Some(value_kb),
+            "MemUsed:" => mem_used_kb = Some(value_kb),
             _ => {}
         }
     }
 
     let total_kb = mem_total_kb.ok_or_else(|| format!("MemTotal not found in {:?}", path))?;
-    let free_kb = mem_free_kb.ok_or_else(|| format!("MemFree not found in {:?}", path))?;
-    let slab_reclaimable_kb =
-        slab_reclaimable_kb.ok_or_else(|| format!("SReclaimable not found in {:?}", path))?;
-    let inactive_anon_kb =
-        mem_inactive_anon_kb.ok_or_else(|| format!("Inactive(anon) not found in {:?}", path))?;
-    let inactive_file_kb =
-        mem_inactive_file_kb.ok_or_else(|| format!("Inactive(file) not found in {:?}", path))?;
-
-    let effective_free_kb = free_kb + slab_reclaimable_kb + inactive_anon_kb + inactive_file_kb;
-    let used_kb = total_kb.saturating_sub(effective_free_kb);
+    let _free_kb = mem_free_kb.ok_or_else(|| format!("MemFree not found in {:?}", path))?;
+    let used_kb = mem_used_kb.ok_or_else(|| format!("MemUsed not found in {:?}", path))?;
 
     Ok((total_kb / 1024, used_kb / 1024)) // Convert KB to MB
 }
