@@ -69,6 +69,7 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
     let mut mem_total_kb: Option<u64> = None;
     let mut mem_free_kb: Option<u64> = None;
     let mut mem_used_kb: Option<u64> = None;
+    let mut inactive_kb: Option<u64> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -83,6 +84,7 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
             "MemTotal:" => mem_total_kb = Some(value_kb),
             "MemFree:" => mem_free_kb = Some(value_kb),
             "MemUsed:" => mem_used_kb = Some(value_kb),
+            "Inactive:" => inactive_kb = Some(value_kb),
             _ => {}
         }
     }
@@ -90,8 +92,9 @@ fn parse_node_meminfo(path: &std::path::Path) -> Result<(u64, u64), Box<dyn Erro
     let total_kb = mem_total_kb.ok_or_else(|| format!("MemTotal not found in {:?}", path))?;
     let _free_kb = mem_free_kb.ok_or_else(|| format!("MemFree not found in {:?}", path))?;
     let used_kb = mem_used_kb.ok_or_else(|| format!("MemUsed not found in {:?}", path))?;
+    let inactive_kb = inactive_kb.ok_or_else(|| format!("Inactive not found in {:?}", path))?;
 
-    Ok((total_kb / 1024, used_kb / 1024)) // Convert KB to MB
+    Ok((total_kb / 1024, (used_kb - inactive_kb) / 1024)) // Convert KB to MB
 }
 
 // Basic parser for cpulist format like "0-3,7,10-11"
